@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, useTemplateRef } from 'vue';
+import { ref, onMounted, onBeforeUnmount, useTemplateRef } from 'vue';
 import { LogOut, MessageCirclePlus } from 'lucide-vue-next';
 import ChatSidebar, { type Contact } from './components/ChatSidebar.vue';
 import ChatHeader from './components/ChatHeader.vue';
@@ -9,6 +9,7 @@ import AuthCard from './components/AuthCard.vue';
 import type { Message } from './components/MessageBubble.vue';
 
 const API_BASE_URL = 'http://localhost:8080';
+const WS_BASE_URL = 'ws://localhost:8080/ws';
 
 type AuthMode = 'login' | 'register';
 
@@ -17,9 +18,29 @@ type AuthCardExposed = {
   setSuccess: (message: string) => void;
 };
 
+type GatewayMessage = {
+  type: 'chat_message';
+  payload: {
+    sender_id: string;
+    receiver_id: string;
+    content: string;
+  };
+};
+
+type WSMessageResponse = {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  timestamp: number;
+};
+
 const authMode = ref<AuthMode>('login');
 const isAuthenticated = ref(false);
 const currentUser = ref('');
+const currentUserId = ref('');
+const wsConnection = ref<WebSocket | null>(null);
+const wsConnectionError = ref('');
 const authCardRef = useTemplateRef<AuthCardExposed>('authCardRef');
 
 const mockContacts: Contact[] = [
@@ -122,6 +143,93 @@ const messages = ref<Record<string, Message[]>>(initialMessages);
 const selectedContact = ref<Contact | undefined>(mockContacts.find((c) => c.id === selectedContactId.value));
 const currentMessages = ref<Message[]>(messages.value[selectedContactId.value] || []);
 
+const decodeUserIdFromToken = (token: string) => {
+  try {
+    const [, payload] = token.split('.');
+    if (!payload) return '';
+
+    const normalizedPayload = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const decodedPayload = window.atob(normalizedPayload);
+    const claims = JSON.parse(decodedPayload) as { userId?: string };
+
+    return claims.userId || '';
+  } catch {
+    return '';
+  }
+};
+
+const formatTimestamp = (timestamp: number) => {
+  if (!Number.isFinite(timestamp)) {
+    return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  return new Date(Math.floor(timestamp / 1_000_000)).toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const updateMessageHistory = (incomingMessage: WSMessageResponse) => {
+  if (!incomingMessage.content?.trim()) {
+    return;
+  }
+
+  const isMine = incomingMessage.sender_id === currentUserId.value;
+  const conversationId = isMine ? incomingMessage.receiver_id : incomingMessage.sender_id;
+
+  if (!messages.value[conversationId]) {
+    messages.value[conversationId] = [];
+  }
+
+  messages.value[conversationId].push({
+    id: incomingMessage.id || `${incomingMessage.sender_id}-${incomingMessage.timestamp}`,
+    text: incomingMessage.content,
+    timestamp: formatTimestamp(incomingMessage.timestamp),
+    isMine,
+  });
+
+  if (selectedContactId.value === conversationId) {
+    currentMessages.value = [...messages.value[conversationId]];
+  }
+};
+
+const openWebSocketConnection = (token: string) => {
+  if (!token || wsConnection.value) {
+    return;
+  }
+
+  wsConnectionError.value = '';
+  const connection = new WebSocket(`${WS_BASE_URL}?token=${encodeURIComponent(token)}`);
+
+  connection.addEventListener('message', (event) => {
+    try {
+      const data = JSON.parse(event.data) as WSMessageResponse;
+      updateMessageHistory(data);
+    } catch {
+      // Ignore non-chat websocket events.
+    }
+  });
+
+  connection.addEventListener('error', () => {
+    wsConnectionError.value = 'Erro ao conectar com o WebSocket. Verifique o backend.';
+  });
+
+  connection.addEventListener('close', () => {
+    wsConnection.value = null;
+  });
+
+  wsConnection.value = connection;
+};
+
+const closeWebSocketConnection = () => {
+  if (!wsConnection.value) {
+    return;
+  }
+
+  wsConnection.value.close();
+  wsConnection.value = null;
+};
+
 onMounted(() => {
   const token = localStorage.getItem('gomessenger_token');
   const username = localStorage.getItem('gomessenger_username');
@@ -129,7 +237,13 @@ onMounted(() => {
   if (token && username) {
     isAuthenticated.value = true;
     currentUser.value = username;
+    currentUserId.value = decodeUserIdFromToken(token);
+    openWebSocketConnection(token);
   }
+});
+
+onBeforeUnmount(() => {
+  closeWebSocketConnection();
 });
 
 const handleSelectContact = (id: string) => {
@@ -139,21 +253,23 @@ const handleSelectContact = (id: string) => {
 };
 
 const handleSendMessage = (text: string) => {
-  if (!selectedContactId.value) return;
+  if (!selectedContactId.value || !currentUserId.value) return;
 
-  const newMessage: Message = {
-    id: Date.now().toString(),
-    text,
-    timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-    isMine: true,
-  };
-
-  if (!messages.value[selectedContactId.value]) {
-    messages.value[selectedContactId.value] = [];
+  if (!wsConnection.value || wsConnection.value.readyState !== WebSocket.OPEN) {
+    wsConnectionError.value = 'WebSocket desconectado. Faça login novamente.';
+    return;
   }
 
-  messages.value[selectedContactId.value].push(newMessage);
-  currentMessages.value = [...messages.value[selectedContactId.value]];
+  const gatewayMessage: GatewayMessage = {
+    type: 'chat_message',
+    payload: {
+      sender_id: currentUserId.value,
+      receiver_id: selectedContactId.value,
+      content: text,
+    },
+  };
+
+  wsConnection.value.send(JSON.stringify(gatewayMessage));
 };
 
 const getStatus = (contact: Contact) => (contact.online ? 'online' : 'offline');
@@ -190,7 +306,9 @@ const handleAuthSubmit = async (payload: { username: string; password: string; m
   localStorage.setItem('gomessenger_token', token);
   localStorage.setItem('gomessenger_username', payload.username);
   currentUser.value = payload.username;
+  currentUserId.value = decodeUserIdFromToken(token);
   isAuthenticated.value = true;
+  openWebSocketConnection(token);
 };
 
 const toggleAuthMode = () => {
@@ -198,9 +316,11 @@ const toggleAuthMode = () => {
 };
 
 const handleLogout = () => {
+  closeWebSocketConnection();
   localStorage.removeItem('gomessenger_token');
   localStorage.removeItem('gomessenger_username');
   currentUser.value = '';
+  currentUserId.value = '';
   isAuthenticated.value = false;
   authMode.value = 'login';
 };
@@ -229,6 +349,9 @@ const handleLogout = () => {
       <ChatSidebar :contacts="mockContacts" :selectedContactId="selectedContactId" @selectContact="handleSelectContact" />
 
       <div v-if="selectedContact" class="flex flex-1 flex-col">
+        <p v-if="wsConnectionError" class="mx-4 mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {{ wsConnectionError }}
+        </p>
         <ChatHeader
           :name="selectedContact.name"
           :avatar="selectedContact.avatar"
