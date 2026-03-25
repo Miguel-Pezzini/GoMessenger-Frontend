@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, useTemplateRef } from 'vue';
+import { computed, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { LogOut, MessageCirclePlus } from 'lucide-vue-next';
-import ChatSidebar, { type Contact } from './components/ChatSidebar.vue';
+import ChatSidebar, { type Contact, type PendingRequest } from './components/ChatSidebar.vue';
 import ChatHeader from './components/ChatHeader.vue';
 import ChatMessages from './components/ChatMessages.vue';
 import MessageInput from './components/MessageInput.vue';
@@ -17,180 +17,298 @@ type AuthCardExposed = {
   setSuccess: (message: string) => void;
 };
 
-const authMode = ref<AuthMode>('login');
-const isAuthenticated = ref(false);
-const currentUser = ref('');
-const authCardRef = useTemplateRef<AuthCardExposed>('authCardRef');
-
-const mockContacts: Contact[] = [
-  {
-    id: '1',
-    name: 'Ana Silva',
-    avatar:
-      'https://images.unsplash.com/photo-1649589244330-09ca58e4fa64?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMHBvcnRyYWl0fGVufDF8fHx8MTc3MjE4NzE5Mnww&ixlib=rb-4.1.0&q=80&w=1080',
-    lastMessage: 'Ótimo! Vejo você amanhã então 😊',
-    timestamp: '14:32',
-    unreadCount: 3,
-    online: true,
-  },
-  {
-    id: '2',
-    name: 'Carlos Mendes',
-    avatar:
-      'https://images.unsplash.com/photo-1554765345-6ad6a5417cde?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBtYW4lMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzIxODY2NTd8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    lastMessage: 'Você recebeu o relatório que enviei?',
-    timestamp: '13:45',
-    unreadCount: 0,
-    online: false,
-  },
-  {
-    id: '3',
-    name: 'Mariana Costa',
-    avatar:
-      'https://images.unsplash.com/photo-1525786210598-d527194d3e9a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx5b3VuZyUyMHdvbWFuJTIwc21pbGluZ3xlbnwxfHx8fDE3NzIxNjU1MDd8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    lastMessage: 'Perfeito, obrigada!',
-    timestamp: '12:20',
-    unreadCount: 0,
-    online: true,
-  },
-  {
-    id: '4',
-    name: 'Pedro Santos',
-    avatar:
-      'https://images.unsplash.com/photo-1723538201695-2427f49cdcde?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxidXNpbmVzcyUyMG1hbiUyMGNhc3VhbHxlbnwxfHx8fDE3NzIyMzIzNjh8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    lastMessage: 'Vamos marcar uma reunião para discutir o projeto',
-    timestamp: '11:05',
-    unreadCount: 1,
-    online: false,
-  },
-  {
-    id: '5',
-    name: 'Julia Oliveira',
-    avatar:
-      'https://images.unsplash.com/photo-1689600944138-da3b150d9cb8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx3b21hbiUyMHByb2Zlc3Npb25hbCUyMGhlYWRzaG90fGVufDF8fHx8MTc3MjE2NjI2NHww&ixlib=rb-4.1.0&q=80&w=1080',
-    lastMessage: 'Conseguiu revisar os documentos?',
-    timestamp: 'Ontem',
-    unreadCount: 0,
-    online: true,
-  },
-];
-
-const initialMessages: Record<string, Message[]> = {
-  '1': [
-    { id: '1', text: 'Oi Ana! Tudo bem?', timestamp: '14:20', isMine: true },
-    { id: '2', text: 'Oi! Tudo ótimo, e você?', timestamp: '14:21', isMine: false },
-    {
-      id: '3',
-      text: 'Tudo bem também! Queria confirmar nossa reunião de amanhã',
-      timestamp: '14:25',
-      isMine: true,
-    },
-    { id: '4', text: 'Ah sim, está confirmada! Às 10h da manhã 😊', timestamp: '14:28', isMine: false },
-    { id: '5', text: 'Perfeito! Vou preparar a apresentação hoje mesmo', timestamp: '14:30', isMine: true },
-    { id: '6', text: 'Ótimo! Vejo você amanhã então 😊', timestamp: '14:32', isMine: false },
-  ],
-  '2': [
-    { id: '1', text: 'Bom dia, Carlos!', timestamp: '09:15', isMine: true },
-    { id: '2', text: 'Bom dia! Como vai o projeto?', timestamp: '09:20', isMine: false },
-    { id: '3', text: 'Está indo bem. Terminei a primeira fase ontem', timestamp: '09:25', isMine: true },
-    { id: '4', text: 'Que ótimo! Vou enviar o relatório para você', timestamp: '13:40', isMine: false },
-    { id: '5', text: 'Você recebeu o relatório que enviei?', timestamp: '13:45', isMine: false },
-  ],
-  '3': [
-    { id: '1', text: 'Mariana, você pode me ajudar com aquela dúvida?', timestamp: '12:10', isMine: true },
-    { id: '2', text: 'Claro! Qual é a dúvida?', timestamp: '12:12', isMine: false },
-    {
-      id: '3',
-      text: 'É sobre o formulário de cadastro. Qual campo devemos adicionar?',
-      timestamp: '12:15',
-      isMine: true,
-    },
-    { id: '4', text: 'Perfeito, obrigada!', timestamp: '12:20', isMine: false },
-  ],
-  '4': [
-    { id: '1', text: 'Pedro, precisamos conversar sobre o cronograma', timestamp: '10:30', isMine: true },
-    { id: '2', text: 'Vamos marcar uma reunião para discutir o projeto', timestamp: '11:05', isMine: false },
-  ],
-  '5': [
-    { id: '1', text: 'Julia, enviei os documentos por email', timestamp: 'Ontem', isMine: true },
-    { id: '2', text: 'Conseguiu revisar os documentos?', timestamp: 'Ontem', isMine: false },
-  ],
+type Friend = {
+  id: string;
+  userId: string;
+  friendId: string;
+  createdAt: string;
 };
 
-const selectedContactId = ref<string>('1');
-const messages = ref<Record<string, Message[]>>(initialMessages);
-const selectedContact = ref<Contact | undefined>(mockContacts.find((c) => c.id === selectedContactId.value));
-const currentMessages = ref<Message[]>(messages.value[selectedContactId.value] || []);
+type FriendRequest = {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  createdAt: string;
+};
+
+const authMode = ref<AuthMode>('login');
+const isAuthenticated = ref(false);
+const isFriendsLoading = ref(false);
+const currentUser = ref('');
+const currentUserId = ref('');
+const actionError = ref('');
+const actionSuccess = ref('');
+const authCardRef = useTemplateRef<AuthCardExposed>('authCardRef');
+
+const friends = ref<Friend[]>([]);
+const pendingRequests = ref<FriendRequest[]>([]);
+const selectedContactId = ref<string | null>(null);
+const messages = ref<Record<string, Message[]>>({});
+
+const contacts = computed<Contact[]>(() =>
+  friends.value.map((friend) => ({
+    id: friend.friendId,
+    name: friend.friendId,
+    avatar: '',
+    lastMessage: 'Friend connection created in backend',
+    timestamp: formatTimestamp(friend.createdAt),
+    unreadCount: 0,
+    online: false,
+  }))
+);
+
+const selectedContact = computed<Contact | undefined>(() =>
+  contacts.value.find((contact) => contact.id === selectedContactId.value)
+);
+
+const currentMessages = computed<Message[]>(() => {
+  if (!selectedContactId.value) {
+    return [];
+  }
+
+  return messages.value[selectedContactId.value] || [];
+});
+
+const sidebarPendingRequests = computed<PendingRequest[]>(() =>
+  pendingRequests.value.map((request) => ({
+    id: request.id,
+    senderId: request.senderId,
+    receiverId: request.receiverId,
+    createdAt: formatTimestamp(request.createdAt),
+  }))
+);
+
+watch(contacts, (nextContacts) => {
+  if (selectedContactId.value && nextContacts.some((contact) => contact.id === selectedContactId.value)) {
+    return;
+  }
+
+  selectedContactId.value = nextContacts[0]?.id ?? null;
+});
 
 onMounted(() => {
+  void initializeSession();
+});
+
+const initializeSession = async () => {
   const token = localStorage.getItem('gomessenger_token');
   const username = localStorage.getItem('gomessenger_username');
 
-  if (token && username) {
-    isAuthenticated.value = true;
-    currentUser.value = username;
+  if (!token || !username) {
+    return;
   }
-});
+
+  isAuthenticated.value = true;
+  currentUser.value = username;
+  currentUserId.value = parseJwtUserId(token);
+
+  try {
+    await refreshFriendsData();
+  } catch (error) {
+    actionError.value = getErrorMessage(error, 'Failed to load friends.');
+  }
+};
+
+const parseJwtUserId = (token: string) => {
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    return '';
+  }
+
+  try {
+    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    const payload = JSON.parse(atob(padded));
+    return typeof payload.userId === 'string' ? payload.userId : '';
+  } catch {
+    return '';
+  }
+};
+
+const formatTimestamp = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+};
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  return error instanceof Error && error.message ? error.message : fallback;
+};
+
+const authFetch = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+  const token = localStorage.getItem('gomessenger_token');
+  if (!token) {
+    throw new Error('Missing session token. Please sign in again.');
+  }
+
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+
+  if (init.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers,
+  });
+
+  const payload = response.status === 204 ? null : await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      (payload &&
+        typeof payload === 'object' &&
+        ('error' in payload || 'message' in payload) &&
+        String((payload as { error?: string; message?: string }).error || (payload as { message?: string }).message)) ||
+      `Request failed with status ${response.status}`;
+
+    if (response.status === 401) {
+      handleLogout();
+    }
+
+    throw new Error(message);
+  }
+
+  return payload as T;
+};
+
+const refreshFriendsData = async () => {
+  isFriendsLoading.value = true;
+
+  try {
+    const [friendsResponse, pendingResponse] = await Promise.all([
+      authFetch<Friend[]>('/friends'),
+      authFetch<FriendRequest[]>('/friends/requests/pending'),
+    ]);
+
+    friends.value = friendsResponse;
+    pendingRequests.value = pendingResponse;
+  } finally {
+    isFriendsLoading.value = false;
+  }
+};
 
 const handleSelectContact = (id: string) => {
   selectedContactId.value = id;
-  selectedContact.value = mockContacts.find((c) => c.id === id);
-  currentMessages.value = messages.value[id] || [];
 };
-
-const handleSendMessage = (text: string) => {
-  if (!selectedContactId.value) return;
-
-  const newMessage: Message = {
-    id: Date.now().toString(),
-    text,
-    timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-    isMine: true,
-  };
-
-  if (!messages.value[selectedContactId.value]) {
-    messages.value[selectedContactId.value] = [];
-  }
-
-  messages.value[selectedContactId.value].push(newMessage);
-  currentMessages.value = [...messages.value[selectedContactId.value]];
-};
-
-const getStatus = (contact: Contact) => (contact.online ? 'online' : 'offline');
 
 const handleAuthSubmit = async (payload: { username: string; password: string; mode: AuthMode }) => {
   const endpoint = payload.mode === 'login' ? '/auth/login' : '/auth/register';
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      username: payload.username,
-      password: payload.password,
-    }),
-  });
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        username: payload.username,
+        password: payload.password,
+      }),
+    });
 
-  const data = await response.json().catch(() => ({}));
+    const data = await response.json().catch(() => ({}));
 
-  if (!response.ok) {
-    const message = data?.message || data?.error || 'Authentication failed. Please try again.';
-    authCardRef.value?.setError(message);
-    return;
+    if (!response.ok) {
+      const message = data?.message || data?.error || 'Authentication failed. Please try again.';
+      authCardRef.value?.setError(message);
+      return;
+    }
+
+    if (payload.mode === 'register') {
+      authCardRef.value?.setSuccess('Registration successful! You can sign in now.');
+      authMode.value = 'login';
+      return;
+    }
+
+    const token = data?.token || data?.accessToken || data?.jwt || '';
+    if (!token) {
+      authCardRef.value?.setError('Login succeeded but no token was returned.');
+      return;
+    }
+
+    localStorage.setItem('gomessenger_token', token);
+    localStorage.setItem('gomessenger_username', payload.username);
+    currentUser.value = payload.username;
+    currentUserId.value = parseJwtUserId(token);
+    isAuthenticated.value = true;
+    actionError.value = '';
+    actionSuccess.value = '';
+
+    await refreshFriendsData();
+  } catch (error) {
+    authCardRef.value?.setError(getErrorMessage(error, 'Unable to reach the backend.'));
   }
+};
 
-  if (payload.mode === 'register') {
-    authCardRef.value?.setSuccess('Registration successful! You can sign in now.');
-    authMode.value = 'login';
-    return;
+const handleSendFriendRequest = async (receiverId: string) => {
+  actionError.value = '';
+  actionSuccess.value = '';
+
+  try {
+    await authFetch<FriendRequest>('/friends/requests', {
+      method: 'POST',
+      body: JSON.stringify({ receiverId }),
+    });
+    actionSuccess.value = `Friend request sent to ${receiverId}.`;
+    await refreshFriendsData();
+  } catch (error) {
+    actionError.value = getErrorMessage(error, 'Failed to send friend request.');
   }
+};
 
-  const token = data?.token || data?.accessToken || data?.jwt || 'session-authenticated';
-  localStorage.setItem('gomessenger_token', token);
-  localStorage.setItem('gomessenger_username', payload.username);
-  currentUser.value = payload.username;
-  isAuthenticated.value = true;
+const handleAcceptRequest = async (requestId: string) => {
+  actionError.value = '';
+  actionSuccess.value = '';
+
+  try {
+    await authFetch<{ accepted: boolean }>(`/friends/requests/${encodeURIComponent(requestId)}/accept`, {
+      method: 'POST',
+    });
+    actionSuccess.value = 'Friend request accepted.';
+    await refreshFriendsData();
+  } catch (error) {
+    actionError.value = getErrorMessage(error, 'Failed to accept friend request.');
+  }
+};
+
+const handleDeclineRequest = async (requestId: string) => {
+  actionError.value = '';
+  actionSuccess.value = '';
+
+  try {
+    await authFetch<null>(`/friends/requests/${encodeURIComponent(requestId)}/decline`, {
+      method: 'DELETE',
+    });
+    actionSuccess.value = 'Friend request declined.';
+    await refreshFriendsData();
+  } catch (error) {
+    actionError.value = getErrorMessage(error, 'Failed to decline friend request.');
+  }
+};
+
+const handleRemoveFriend = async (friendId: string) => {
+  actionError.value = '';
+  actionSuccess.value = '';
+
+  try {
+    await authFetch<null>(`/friends/${encodeURIComponent(friendId)}`, {
+      method: 'DELETE',
+    });
+    actionSuccess.value = `Removed ${friendId} from your friends list.`;
+    await refreshFriendsData();
+  } catch (error) {
+    actionError.value = getErrorMessage(error, 'Failed to remove friend.');
+  }
 };
 
 const toggleAuthMode = () => {
@@ -201,6 +319,12 @@ const handleLogout = () => {
   localStorage.removeItem('gomessenger_token');
   localStorage.removeItem('gomessenger_username');
   currentUser.value = '';
+  currentUserId.value = '';
+  friends.value = [];
+  pendingRequests.value = [];
+  selectedContactId.value = null;
+  actionError.value = '';
+  actionSuccess.value = '';
   isAuthenticated.value = false;
   authMode.value = 'login';
 };
@@ -216,7 +340,7 @@ const handleLogout = () => {
       <AuthCard ref="authCardRef" :mode="authMode" @submit="handleAuthSubmit" @toggleMode="toggleAuthMode" />
     </div>
 
-    <div v-else class="relative mx-auto flex h-screen max-w-[1440px] bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 shadow-2xl">
+    <div v-else class="relative mx-auto flex h-screen max-w-[1600px] bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 shadow-2xl">
       <button
         type="button"
         class="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-2 text-xs font-semibold text-slate-700 shadow-md transition hover:bg-white"
@@ -226,17 +350,33 @@ const handleLogout = () => {
         Logout {{ currentUser }}
       </button>
 
-      <ChatSidebar :contacts="mockContacts" :selectedContactId="selectedContactId" @selectContact="handleSelectContact" />
+      <ChatSidebar
+        :contacts="contacts"
+        :pendingRequests="sidebarPendingRequests"
+        :selectedContactId="selectedContactId"
+        :isLoading="isFriendsLoading"
+        :currentUserId="currentUserId"
+        :actionError="actionError"
+        :actionSuccess="actionSuccess"
+        @selectContact="handleSelectContact"
+        @sendFriendRequest="handleSendFriendRequest"
+        @acceptRequest="handleAcceptRequest"
+        @declineRequest="handleDeclineRequest"
+        @removeFriend="handleRemoveFriend"
+      />
 
       <div v-if="selectedContact" class="flex flex-1 flex-col">
         <ChatHeader
           :name="selectedContact.name"
           :avatar="selectedContact.avatar"
-          :status="getStatus(selectedContact)"
-          :online="selectedContact.online"
+          status="friend connected"
+          :online="false"
         />
         <ChatMessages :messages="currentMessages" />
-        <MessageInput @sendMessage="handleSendMessage" />
+        <div class="border-t border-indigo-100 bg-amber-50 px-6 py-3 text-sm text-amber-900">
+          Friends are loaded from the backend. Chat message delivery is not wired in this screen yet.
+        </div>
+        <MessageInput disabled placeholder="Messaging integration is pending" />
       </div>
 
       <div v-else class="flex flex-1 items-center justify-center">
@@ -244,8 +384,8 @@ const handleLogout = () => {
           <div class="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-indigo-100">
             <MessageCirclePlus :size="32" class="text-indigo-600" />
           </div>
-          <p class="font-medium text-gray-600">Selecione uma conversa para começar</p>
-          <p class="mt-1 text-sm text-gray-400">Escolha um contato da lista ao lado</p>
+          <p class="font-medium text-gray-600">No friend selected</p>
+          <p class="mt-1 text-sm text-gray-400">Send or accept a friend request from the sidebar.</p>
         </div>
       </div>
     </div>

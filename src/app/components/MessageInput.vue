@@ -2,6 +2,17 @@
 import { ref } from 'vue';
 import { Paperclip, Smile, Send } from 'lucide-vue-next';
 
+const props = withDefaults(
+  defineProps<{
+    disabled?: boolean;
+    placeholder?: string;
+  }>(),
+  {
+    disabled: false,
+    placeholder: 'Digite sua mensagem...',
+  }
+);
+
 const emit = defineEmits<{
   sendMessage: [text: string];
 }>();
@@ -9,13 +20,17 @@ const emit = defineEmits<{
 const message = ref('');
 
 const handleSend = () => {
-  if (message.value.trim()) {
+  if (!props.disabled && message.value.trim()) {
     emit('sendMessage', message.value);
     message.value = '';
   }
 };
 
 const handleKeyDown = (e: KeyboardEvent) => {
+  if (props.disabled) {
+    return;
+  }
+
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     handleSend();
@@ -37,14 +52,15 @@ const handleKeyDown = (e: KeyboardEvent) => {
       <textarea
         v-model="message"
         @keydown="handleKeyDown"
-        placeholder="Digite sua mensagem..."
-        class="flex-1 resize-none min-h-[44px] max-h-32 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+        :disabled="props.disabled"
+        :placeholder="props.placeholder"
+        class="flex-1 resize-none min-h-[44px] max-h-32 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
         rows="1"
       />
 
       <button
         @click="handleSend"
-        :disabled="!message.trim()"
+        :disabled="props.disabled || !message.trim()"
         class="shrink-0 inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-md h-10 px-4"
       >
         <Send :size="20" />
