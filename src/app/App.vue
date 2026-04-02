@@ -40,6 +40,33 @@ const actionError = ref('');
 const actionSuccess = ref('');
 const authCardRef = useTemplateRef<AuthCardExposed>('authCardRef');
 
+let ws: WebSocket | null = null;
+
+const connectWebSocket = (token: string) => {
+  ws = new WebSocket(`ws://localhost:8080/ws?token=${encodeURIComponent(token)}`);
+
+  ws.addEventListener('message', (event: MessageEvent) => {
+    try {
+      const msg = JSON.parse(event.data as string) as { type: string };
+      if (
+        msg.type === 'friend_request_received' ||
+        msg.type === 'friend_request_accepted' ||
+        msg.type === 'friend_request_declined' ||
+        msg.type === 'friend_removed'
+      ) {
+        void refreshFriendsData();
+      }
+    } catch {
+      // ignore non-JSON messages
+    }
+  });
+};
+
+const disconnectWebSocket = () => {
+  ws?.close();
+  ws = null;
+};
+
 const friends = ref<Friend[]>([]);
 const pendingRequests = ref<FriendRequest[]>([]);
 const selectedContactId = ref<string | null>(null);
@@ -101,6 +128,7 @@ const initializeSession = async () => {
   isAuthenticated.value = true;
   currentUser.value = username;
   currentUserId.value = parseJwtUserId(token);
+  connectWebSocket(token);
 
   try {
     await refreshFriendsData();
@@ -243,6 +271,7 @@ const handleAuthSubmit = async (payload: { username: string; password: string; m
     isAuthenticated.value = true;
     actionError.value = '';
     actionSuccess.value = '';
+    connectWebSocket(token);
 
     await refreshFriendsData();
   } catch (error) {
@@ -316,6 +345,7 @@ const toggleAuthMode = () => {
 };
 
 const handleLogout = () => {
+  disconnectWebSocket();
   localStorage.removeItem('gomessenger_token');
   localStorage.removeItem('gomessenger_username');
   currentUser.value = '';
