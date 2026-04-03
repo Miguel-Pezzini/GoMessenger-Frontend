@@ -31,6 +31,14 @@ type FriendRequest = {
   createdAt: string;
 };
 
+type ChatMessageResponse = {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  created_at: string;
+};
+
 const authMode = ref<AuthMode>('login');
 const isAuthenticated = ref(false);
 const isFriendsLoading = ref(false);
@@ -47,12 +55,27 @@ const connectWebSocket = (token: string) => {
 
   ws.addEventListener('message', (event: MessageEvent) => {
     try {
-      const msg = JSON.parse(event.data as string) as { type: string };
+      const raw = JSON.parse(event.data as string) as Record<string, unknown>;
+
+      // Chat messages have no `type` wrapper — detected by presence of sender_id
+      if ('sender_id' in raw && 'content' in raw) {
+        const chatMsg = raw as unknown as ChatMessageResponse;
+        // Skip echo of own messages — already added optimistically on send
+        if (chatMsg.sender_id === currentUserId.value) return;
+        addMessage(chatMsg.sender_id, {
+          id: chatMsg.id,
+          text: chatMsg.content,
+          timestamp: chatMsg.created_at ? formatTimestamp(chatMsg.created_at) : new Date().toLocaleTimeString(),
+          isMine: false,
+        });
+        return;
+      }
+
       if (
-        msg.type === 'friend_request_received' ||
-        msg.type === 'friend_request_accepted' ||
-        msg.type === 'friend_request_declined' ||
-        msg.type === 'friend_removed'
+        raw.type === 'friend_request_received' ||
+        raw.type === 'friend_request_accepted' ||
+        raw.type === 'friend_request_declined' ||
+        raw.type === 'friend_removed'
       ) {
         void refreshFriendsData();
       }
@@ -344,6 +367,32 @@ const toggleAuthMode = () => {
   authMode.value = authMode.value === 'login' ? 'register' : 'login';
 };
 
+const addMessage = (contactId: string, message: Message) => {
+  if (!messages.value[contactId]) {
+    messages.value[contactId] = [];
+  }
+  messages.value[contactId] = [...messages.value[contactId], message];
+};
+
+const handleSendMessage = (text: string) => {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !selectedContactId.value) return;
+  ws.send(
+    JSON.stringify({
+      type: 'chat_message',
+      payload: {
+        receiver_id: selectedContactId.value,
+        content: text,
+      },
+    })
+  );
+  addMessage(selectedContactId.value, {
+    id: `local-${Date.now()}`,
+    text,
+    timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    isMine: true,
+  });
+};
+
 const handleLogout = () => {
   disconnectWebSocket();
   localStorage.removeItem('gomessenger_token');
@@ -403,10 +452,7 @@ const handleLogout = () => {
           :online="false"
         />
         <ChatMessages :messages="currentMessages" />
-        <div class="border-t border-indigo-100 bg-amber-50 px-6 py-3 text-sm text-amber-900">
-          Friends are loaded from the backend. Chat message delivery is not wired in this screen yet.
-        </div>
-        <MessageInput disabled placeholder="Messaging integration is pending" />
+        <MessageInput @sendMessage="handleSendMessage" />
       </div>
 
       <div v-else class="flex flex-1 items-center justify-center">
